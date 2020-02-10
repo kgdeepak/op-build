@@ -4,12 +4,16 @@
 #
 ################################################################################
 
-OPENPOWER_PNOR_VERSION ?= 4c844a5ef7efc6605c4c877b6c92cf0a1a0df0b5
+OPENPOWER_PNOR_VERSION ?= 6fb8d914134d544a8466c739370947e32d5a4469
 OPENPOWER_PNOR_SITE ?= $(call github,open-power,pnor,$(OPENPOWER_PNOR_VERSION))
 
 OPENPOWER_PNOR_LICENSE = Apache-2.0
 OPENPOWER_PNOR_LICENSE_FILES = LICENSE
-OPENPOWER_PNOR_DEPENDENCIES = hostboot hostboot-binaries machine-xml skiboot host-openpower-ffs occ capp-ucode
+OPENPOWER_PNOR_DEPENDENCIES = hostboot-binaries machine-xml skiboot host-openpower-ffs capp-ucode host-openpower-pnor-util
+
+ifeq ($(BR2_OPENPOWER_POWER9),y)
+OPENPOWER_PNOR_DEPENDENCIES += hcode
+endif
 
 ifeq ($(BR2_PACKAGE_IMA_CATALOG),y)
 OPENPOWER_PNOR_DEPENDENCIES += ima-catalog
@@ -48,39 +52,55 @@ else
     OPENPOWER_RELEASE=p8
 endif
 
-ifeq ($(BR2_BUILD_PNOR_SQUASHFS),y)
-    OPENPOWER_PNOR_DEPENDENCIES += host-openpower-vpnor
-endif
-
 OPENPOWER_PNOR_INSTALL_IMAGES = YES
 OPENPOWER_PNOR_INSTALL_TARGET = NO
 
 HOSTBOOT_IMAGE_DIR=$(STAGING_DIR)/hostboot_build_images/
-HOSTBOOT_BINARY_DIR = $(STAGING_DIR)/hostboot_binaries/
+HOSTBOOT_BINARY_DIR = $(STAGING_DIR)/hostboot_binaries
+
+HCODE_STAGING_DIR = $(STAGING_DIR)/hcode
+
 SBE_BINARY_DIR = $(STAGING_DIR)/sbe_binaries/
 OPENPOWER_PNOR_SCRATCH_DIR = $(STAGING_DIR)/openpower_pnor_scratch/
 OPENPOWER_VERSION_DIR = $(STAGING_DIR)/openpower_version
 OPENPOWER_MRW_SCRATCH_DIR = $(STAGING_DIR)/openpower_mrw_scratch
 OUTPUT_BUILD_DIR = $(STAGING_DIR)/../../../build/
 OUTPUT_IMAGES_DIR = $(STAGING_DIR)/../../../images/
-HOSTBOOT_BUILD_IMAGES_DIR = $(STAGING_DIR)/../../../staging/hostboot_build_images/
+HOSTBOOT_BUILD_IMAGES_DIR = $(STAGING_DIR)/hostboot_build_images/
+# See Open-Power's Hostboot repo, file: src/build/buildpnor/PnorUtils.pm,
+# function: loadPnorLayout(); at the end of that function the generated XML file
+# is concatenated with "WithOffsets.xml"
+GENERATED_PNOR_LAYOUT_FILES = $(shell find "$(OPENPOWER_PNOR_SCRATCH_DIR)" -maxdepth 1 -name "*WithOffsets.xml")
 
 FILES_TO_TAR = $(HOSTBOOT_BUILD_IMAGES_DIR)/* \
-               $(OUTPUT_BUILD_DIR)/skiboot-*/skiboot.elf \
-               $(OUTPUT_BUILD_DIR)/skiboot-*/skiboot.map \
-               $(OUTPUT_BUILD_DIR)/linux-*/.config \
-               $(OUTPUT_BUILD_DIR)/linux-*/vmlinux \
-               $(OUTPUT_BUILD_DIR)/linux-*/System.map \
-               $(OUTPUT_IMAGES_DIR)/zImage.epapr
-
+               $(OUTPUT_BUILD_DIR)/skiboot-$(BR2_SKIBOOT_VERSION)/skiboot.elf \
+               $(OUTPUT_BUILD_DIR)/skiboot-$(BR2_SKIBOOT_VERSION)/skiboot.map \
+               $(OUTPUT_BUILD_DIR)/linux-$(BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE)/.config \
+               $(OUTPUT_BUILD_DIR)/linux-$(BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE)/vmlinux \
+               $(OUTPUT_BUILD_DIR)/linux-$(BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE)/System.map \
+               $(OUTPUT_IMAGES_DIR)/zImage.epapr \
+               $(GENERATED_PNOR_LAYOUT_FILES)
 
 # Subpackages we want to include in the version info (do not include openpower-pnor)
-OPENPOWER_VERSIONED_SUBPACKAGES = skiboot hostboot linux petitboot machine-xml occ hostboot-binaries capp-ucode
+OPENPOWER_VERSIONED_SUBPACKAGES = skiboot
+ifeq ($(BR2_PACKAGE_HOSTBOOT_P8),y)
+OPENPOWER_VERSIONED_SUBPACKAGES += hostboot-p8 occ-p8
+endif
+ifeq ($(BR2_PACKAGE_HOSTBOOT),y)
+OPENPOWER_VERSIONED_SUBPACKAGES += hostboot occ
+endif
+OPENPOWER_VERSIONED_SUBPACKAGES += linux petitboot machine-xml hostboot-binaries capp-ucode
 OPENPOWER_PNOR = openpower-pnor
 
 ifeq ($(BR2_OPENPOWER_POWER9),y)
-    OPENPOWER_PNOR_DEPENDENCIES += sbe
-    OPENPOWER_VERSIONED_SUBPACKAGES += sbe
+    OPENPOWER_PNOR_DEPENDENCIES += sbe hcode
+    OPENPOWER_VERSIONED_SUBPACKAGES += sbe hcode
+endif
+
+ifeq ($(BR2_PACKAGE_OCC_P8),y)
+    OCC_BIN_FILENAME=$(BR2_OCC_P8_BIN_FILENAME)
+else
+    OCC_BIN_FILENAME=$(BR2_OCC_BIN_FILENAME)
 endif
 
 define OPENPOWER_PNOR_INSTALL_IMAGES_CMDS
@@ -92,13 +112,18 @@ define OPENPOWER_PNOR_INSTALL_IMAGES_CMDS
             -hb_image_dir $(HOSTBOOT_IMAGE_DIR) \
             -scratch_dir $(OPENPOWER_PNOR_SCRATCH_DIR) \
             -hb_binary_dir $(HOSTBOOT_BINARY_DIR) \
+            -hcode_dir $(HCODE_STAGING_DIR) \
             -targeting_binary_filename $(BR2_OPENPOWER_TARGETING_ECC_FILENAME) \
             -targeting_binary_source $(BR2_OPENPOWER_TARGETING_BIN_FILENAME) \
+            -targeting_RO_binary_filename $(BR2_OPENPOWER_TARGETING_ECC_FILENAME).protected \
+            -targeting_RO_binary_source $(BR2_OPENPOWER_TARGETING_BIN_FILENAME).protected \
+            -targeting_RW_binary_filename $(BR2_OPENPOWER_TARGETING_ECC_FILENAME).unprotected \
+            -targeting_RW_binary_source $(BR2_OPENPOWER_TARGETING_BIN_FILENAME).unprotected \
             -sbe_binary_filename $(BR2_HOSTBOOT_BINARY_SBE_FILENAME) \
             -sbe_binary_dir $(SBE_BINARY_DIR) \
             -sbec_binary_filename $(BR2_HOSTBOOT_BINARY_SBEC_FILENAME) \
             -wink_binary_filename $(BR2_HOSTBOOT_BINARY_WINK_FILENAME) \
-            -occ_binary_filename $(OCC_STAGING_DIR)/$(BR2_OCC_BIN_FILENAME) \
+            -occ_binary_filename $(OCC_STAGING_DIR)/$(OCC_BIN_FILENAME) \
             -capp_binary_filename $(BINARIES_DIR)/$(BR2_CAPP_UCODE_BIN_FILENAME) \
             -ima_catalog_binary_filename $(BINARIES_DIR)/$(BR2_IMA_CATALOG_FILENAME) \
             -openpower_version_filename $(OPENPOWER_PNOR_VERSION_FILE) \
@@ -108,6 +133,10 @@ define OPENPOWER_PNOR_INSTALL_IMAGES_CMDS
             -payload_filename $(BR2_SKIBOOT_LID_XZ_NAME) \
             -binary_dir $(BINARIES_DIR) \
             -bootkernel_filename $(LINUX_IMAGE_NAME) \
+	    -ocmbfw_version $(BR2_OCMB_EXPLORER_FW_VERSION) \
+	    -ocmbfw_url $(BR2_OCMB_EXPLORER_FW_URL) \
+	    -ocmbfw_original_filename $(BINARIES_DIR)/$(BR2_OCMBFW_FILENAME) \
+	    -ocmbfw_binary_filename $(OPENPOWER_PNOR_SCRATCH_DIR)/$(BR2_OCMBFW_PROCESSED_FILENAME) \
             -pnor_layout $(@D)/"$(OPENPOWER_RELEASE)"Layouts/$(BR2_OPENPOWER_PNOR_XML_LAYOUT_FILENAME) \
             $(XZ_ARG) $(KEY_TRANSITION_ARG) $(SIGN_MODE_ARG) \
 
@@ -124,11 +153,14 @@ define OPENPOWER_PNOR_INSTALL_IMAGES_CMDS
             -sbe_binary_filename $(BR2_HOSTBOOT_BINARY_SBE_FILENAME) \
             -sbec_binary_filename $(BR2_HOSTBOOT_BINARY_SBEC_FILENAME) \
             -wink_binary_filename $(BR2_HOSTBOOT_BINARY_WINK_FILENAME) \
-            -occ_binary_filename $(OCC_STAGING_DIR)/$(BR2_OCC_BIN_FILENAME) \
+            -occ_binary_filename $(OCC_STAGING_DIR)/$(OCC_BIN_FILENAME) \
             -targeting_binary_filename $(BR2_OPENPOWER_TARGETING_ECC_FILENAME) \
+            -targeting_RO_binary_filename $(BR2_OPENPOWER_TARGETING_ECC_FILENAME).protected \
+            -targeting_RW_binary_filename $(BR2_OPENPOWER_TARGETING_ECC_FILENAME).unprotected \
             -wofdata_binary_filename $(OPENPOWER_PNOR_SCRATCH_DIR)/$(BR2_WOFDATA_BINARY_FILENAME) \
             -memddata_binary_filename $(OPENPOWER_PNOR_SCRATCH_DIR)/$(BR2_MEMDDATA_BINARY_FILENAME) \
-            -openpower_version_filename $(OPENPOWER_PNOR_VERSION_FILE)
+            -ocmbfw_binary_filename $(OPENPOWER_PNOR_SCRATCH_DIR)/$(BR2_OCMBFW_PROCESSED_FILENAME) \
+            -openpower_version_filename $(OPENPOWER_PNOR_SCRATCH_DIR)/openpower_pnor_version.bin
 
         $(INSTALL) $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_FILENAME) $(BINARIES_DIR)
 
@@ -139,14 +171,20 @@ define OPENPOWER_PNOR_INSTALL_IMAGES_CMDS
             $(INSTALL) $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_UPDATE_FILENAME) $(BINARIES_DIR); \
         fi
 
-        # If this is a VPNOR system, run the generate-squashfs command and
+        # If this is a VPNOR system, run the generate-tar command and
         # create a tarball
         if [ "$(BR2_BUILD_PNOR_SQUASHFS)" == "y" ]; then \
-            PATH=$(HOST_DIR)/usr/bin:$(PATH) $(HOST_DIR)/usr/bin/generate-squashfs -f $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_FILENAME).squashfs.tar $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_FILENAME); \
+            PATH=$(HOST_DIR)/usr/bin:$(PATH) $(HOST_DIR)/usr/bin/generate-tar -i squashfs -f $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_FILENAME).squashfs.tar $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_FILENAME) -s; \
             $(INSTALL) $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_FILENAME).squashfs.tar $(BINARIES_DIR); \
+        else \
+            PATH=$(HOST_DIR)/usr/bin:$(PATH) $(HOST_DIR)/usr/bin/generate-tar -i static -f $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_FILENAME).static.tar.gz $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_FILENAME) -s; \
+            $(INSTALL) $(STAGING_DIR)/pnor/$(BR2_OPENPOWER_PNOR_FILENAME).static.tar.gz $(BINARIES_DIR); \
         fi
 
-	    tar --transform 's/.*\///g' -zcvf $(OUTPUT_IMAGES_DIR)/host_fw_debug.tar $(FILES_TO_TAR)
+	#Create Debug Tarball
+	mkdir -p $(STAGING_DIR)/pnor/host_fw_debug_tarball_files/
+	cp -r $(FILES_TO_TAR) $(STAGING_DIR)/pnor/host_fw_debug_tarball_files/
+	tar -zcvf $(OUTPUT_IMAGES_DIR)/host_fw_debug.tar -C $(STAGING_DIR)/pnor/host_fw_debug_tarball_files/  .
 
 endef
 

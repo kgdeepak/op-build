@@ -1,17 +1,22 @@
 config BR2_PACKAGE_OPENPOWER_PNOR
         bool "openpower_pnor"
         default y if (BR2_OPENPOWER_PLATFORM)
-        select BR2_PACKAGE_HOSTBOOT
+        select BR2_PACKAGE_HOSTBOOT if !BR2_OPENPOWER_POWER8
+        select BR2_PACKAGE_HOSTBOOT_P8 if BR2_OPENPOWER_POWER8
         select BR2_PACKAGE_HOSTBOOT_BINARIES
         select BR2_PACKAGE_SKIBOOT
         select BR2_PACKAGE_OPENPOWER_FFS
-        select BR2_PACKAGE_OCC
+        select BR2_PACKAGE_OCC if !BR2_OPENPOWER_POWER8
+        select BR2_PACKAGE_OCC_P8 if BR2_OPENPOWER_POWER8
         select BR2_PACKAGE_CAPP_UCODE
         select BR2_PACKAGE_IMA_CATALOG
         select BR2_PACKAGE_HOST_OPENPOWER_VPNOR
-	select BR2_PACKAGE_MACHINE_XML
+        select BR2_PACKAGE_MACHINE_XML
+        select BR2_PACKAGE_HCODE if BR2_OPENPOWER_POWER9
         help
             Utilites for building a targeting binary image
+
+menu "OpenPOWER PNOR assembly options"
 
 choice
     prompt "Secure Boot key transition type"
@@ -73,7 +78,7 @@ config BR2_SKIBOOT_LID_NAME
             String used to define skiboot lid filename
 
 config BR2_TARGET_SKIBOOT_XZ
-        boolean "Compress the skiboot image with XZ"
+        bool "Compress the skiboot image with XZ"
         select BR2_OPENPOWER_PNOR_XZ_ENABLED
         default y
 
@@ -93,6 +98,12 @@ config BR2_HOSTBOOT_BINARY_SBEC_FILENAME
         string "Name of sbec hostboot binary"
         help
             String used to define name of sbec hostboot binary file
+
+config BR2_HOSTBOOT_BINARY_IONV_FILENAME
+        string "Name of IONV binary"
+        default "ionv.bin"
+        help
+            String used to define name of ionv binary file
 
 config BR2_HOSTBOOT_BINARY_WINK_FILENAME
         string "Name of winkle hostboot binary"
@@ -143,10 +154,24 @@ config BR2_OPENPOWER_TARGETING_ECC_FILENAME
         help
             String used to define name of openpower targeting binary file, ecc protected
 
+config BR2_OCMBFW_FILENAME
+        string "Name of the OCMBFW Update original file"
+        default "signed_app_fw.mem"
+        help
+            String used to define name of OCBMFW Update original file (before any processing occurs)
+
+config BR2_OCMBFW_PROCESSED_FILENAME
+        string "Name of OCMBFW Update binary processed file"
+        default "ocmbfw.bin.ecc"
+        help
+            String used to define the name of the OCMBFW update binary file after processing, ecc protected
+
 config BR2_OPENPOWER_PNOR_XZ_ENABLED
         bool "Enable xz compression in PNOR payloads"
         default n
 
 config BR2_BUILD_PNOR_SQUASHFS
         bool "Create a virtual PNOR image along with the standard image"
-        default y
+        default n
+
+endmenu
